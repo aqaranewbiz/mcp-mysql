@@ -43,29 +43,25 @@ settings:
 startCommand:
   type: stdio
   configSchema:
-    type: object
     properties:
       mysqlHost:
-        type: string
+        type: "string"
         description: "MySQL host address"
       mysqlPort:
-        type: integer
+        type: "number"
         description: "MySQL port"
         default: 3306
       mysqlUser:
-        type: string
+        type: "string"
         description: "MySQL username"
       mysqlPassword:
-        type: string
+        type: "string"
         description: "MySQL password"
-        format: password
+        format: "password"
       mysqlDatabase:
-        type: string
+        type: "string"
         description: "Database name"
-    required:
-      - mysqlHost
-      - mysqlUser
-      - mysqlPassword
+    required: ["mysqlHost", "mysqlUser", "mysqlPassword"]
   commandFunction: |
     (config) => ({
       command: "python",
@@ -147,32 +143,30 @@ tools:
     parameters:
       properties:
         database:
-          type: string
+          type: "string"
           description: "Database name"
   describe_table:
     description: "Show table schema"
     parameters:
       properties:
         table:
-          type: string
+          type: "string"
           description: "Table name"
         database:
-          type: string
+          type: "string"
           description: "Database name"
-      required:
-        - table
+      required: ["table"]
   execute_query:
     description: "Execute SQL query"
     parameters:
       properties:
         query:
-          type: string
+          type: "string"
           description: "SQL query"
         database:
-          type: string
+          type: "string"
           description: "Database name"
-      required:
-        - query
+      required: ["query"]
 
 metadata:
   name: "MySQL MCP Server"
