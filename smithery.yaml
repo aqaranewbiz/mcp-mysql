@@ -1,15 +1,22 @@
 # Smithery configuration file for MySQL MCP Server
 name: "mysql-mcp-python-server"
-description: "MySQL MCP server for secure database access"
+description: "MySQL MCP Server in Python"
 version: "1.0.0"
 logo: "./logo.png"
 
 local:
   enabled: true
   installation:
-    type: "npm"
-    package: "@mysql-mcp/python-server"
-    binary: "mysql-mcp-server"
+    type: "pip"
+    package: "mysql-mcp-server"
+    requirements:
+      - mysql-connector-python>=8.0.0
+      - python-json-logger>=2.0.0
+      - jsonschema>=3.2.0
+      - flask>=2.0.0
+    command: "python"
+    args: ["mcp_server.py"]
+    mode: "stdio"
 
 settings:
   configurable: true
@@ -92,7 +99,7 @@ startCommand:
         format: password
       mysqlDatabase:
         type: string
-        description: "Name of the MySQL database to connect to (optional)"
+        description: "Database name to connect to (optional)"
   commandFunction: |
     (config) => ({
       command: "python",
@@ -211,4 +218,42 @@ metadata:
   description: "Secure MySQL database access through Model Context Protocol"
   version: "1.0.0"
   author: "Smithery AI"
-  license: "MIT" 
+  license: "MIT"
+
+environment:
+  - name: MYSQL_HOST
+    description: MySQL server hostname
+    default: localhost
+  - name: MYSQL_PORT
+    description: MySQL server port
+    default: "3306"
+  - name: MYSQL_USER
+    description: MySQL username
+    required: true
+  - name: MYSQL_PASSWORD
+    description: MySQL password
+    required: true
+  - name: MYSQL_DATABASE
+    description: Default MySQL database
+    required: true
+  - name: ROW_LIMIT
+    description: Maximum number of rows to return per query
+    default: "1000"
+  - name: QUERY_TIMEOUT
+    description: Query timeout in milliseconds
+    default: "10000"
+  - name: POOL_SIZE
+    description: Size of the MySQL connection pool
+    default: "10"
+  - name: HEALTH_PORT
+    description: Port for the health check server
+    default: "14000"
+  - name: KEEP_ALIVE_INTERVAL
+    description: Keep-alive interval in seconds
+    default: "10"
+  - name: TIMEOUT
+    description: Server timeout in seconds
+    default: "300"
+  - name: LOG_LEVEL
+    description: Logging level (INFO, DEBUG, WARNING, ERROR)
+    default: "INFO" 

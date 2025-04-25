@@ -25,13 +25,28 @@ from mysql.connector import connect, Error, pooling
 from pythonjsonlogger import jsonlogger
 from flask import Flask, jsonify
 
+# Default configuration
+DEFAULT_CONFIG = {
+    'host': os.environ.get('MYSQL_HOST', 'localhost'),
+    'port': int(os.environ.get('MYSQL_PORT', 3306)),
+    'user': os.environ.get('MYSQL_USER'),
+    'password': os.environ.get('MYSQL_PASSWORD'),
+    'database': os.environ.get('MYSQL_DATABASE'),
+    'row_limit': int(os.environ.get('ROW_LIMIT', 1000)),
+    'query_timeout': int(os.environ.get('QUERY_TIMEOUT', 10000)) / 1000,  # Convert from ms to seconds
+    'pool_size': int(os.environ.get('POOL_SIZE', 10)),
+    'health_port': int(os.environ.get('HEALTH_PORT', 14000)),
+    'keep_alive_interval': int(os.environ.get('KEEP_ALIVE_INTERVAL', 10)),
+    'timeout': int(os.environ.get('TIMEOUT', 300))
+}
+
 # Configure logging
 logger = logging.getLogger()
 logHandler = logging.StreamHandler()
 formatter = jsonlogger.JsonFormatter()
 logHandler.setFormatter(formatter)
 logger.addHandler(logHandler)
-logger.setLevel(logging.INFO)
+logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
 
 # Create Flask app for health check
 app = Flask(__name__)
@@ -41,7 +56,7 @@ def health_check():
     return jsonify({"status": "healthy"}), 200
 
 def run_health_server():
-    app.run(host='0.0.0.0', port=14000)
+    app.run(host='0.0.0.0', port=DEFAULT_CONFIG['health_port'])
 
 # Start health check server in a separate thread
 health_thread = threading.Thread(target=run_health_server, daemon=True)
@@ -51,11 +66,11 @@ health_thread.start()
 running = True
 initialized = False
 last_activity_time = time.time()
-KEEP_ALIVE_INTERVAL = 10  # seconds
-TIMEOUT = 300  # seconds
+KEEP_ALIVE_INTERVAL = DEFAULT_CONFIG['keep_alive_interval']  # seconds
+TIMEOUT = DEFAULT_CONFIG['timeout']  # seconds
 connection_pool = None
-row_limit = int(os.environ.get('ROW_LIMIT', 1000))
-query_timeout = int(os.environ.get('QUERY_TIMEOUT', 10000)) / 1000  # Convert from ms to seconds
+row_limit = DEFAULT_CONFIG['row_limit']
+query_timeout = DEFAULT_CONFIG['query_timeout']
 
 # Allowed SQL commands (read-only operations)
 ALLOWED_COMMANDS = [
@@ -135,7 +150,7 @@ def create_connection_pool(config: Dict[str, Any]) -> pooling.MySQLConnectionPoo
     try:
         pool = mysql.connector.pooling.MySQLConnectionPool(
             pool_name="mysql_pool",
-            pool_size=10,
+            pool_size=config['pool_size'],
             **config
         )
         logger.info("Connection pool created successfully")
@@ -536,11 +551,11 @@ def main():
     keep_alive_thread.start()
     
     # Get database connection info from environment variables
-    host = os.environ.get('MYSQL_HOST')
-    user = os.environ.get('MYSQL_USER')
-    password = os.environ.get('MYSQL_PASSWORD')
-    database = os.environ.get('MYSQL_DATABASE')
-    port = int(os.environ.get('MYSQL_PORT', '3306'))
+    host = DEFAULT_CONFIG['host']
+    user = DEFAULT_CONFIG['user']
+    password = DEFAULT_CONFIG['password']
+    database = DEFAULT_CONFIG['database']
+    port = DEFAULT_CONFIG['port']
     
     if not all([host, user, password]):
         logger.error("Required environment variables MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD not set")
