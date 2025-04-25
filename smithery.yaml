@@ -1,71 +1,21 @@
-# Smithery configuration file for MySQL MCP Server
-name: "mysql-mcp-python-server"
-description: "MySQL MCP server for database access"
-version: "1.0.0"
-logo: "./logo.png"
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
-local:
-  enabled: true
-  installation:
-    type: "npm"
-    package: "@mysql-mcp/python-server"
-    binary: "mysql-mcp-server"
-
-settings:
-  configurable: true
-  schema:
-    type: object
-    properties:
-      mysqlHost:
-        type: string
-        description: "MySQL server host address"
-        default: "localhost"
-      mysqlPort:
-        type: integer
-        description: "MySQL server port"
-        default: 3306
-      mysqlUser:
-        type: string
-        description: "MySQL username"
-      mysqlPassword:
-        type: string
-        description: "MySQL password"
-        format: password
-      mysqlDatabase:
-        type: string
-        description: "MySQL database name"
-    required:
-      - mysqlHost
-      - mysqlUser
-      - mysqlPassword
-      - mysqlDatabase
-
-configSchema:
-  type: "object"
-  properties:
-    mysqlHost:
-      type: "string"
-      description: "MySQL host address"
-      default: "localhost"
-    mysqlPort:
-      type: "number"
-      description: "MySQL port"
-      default: 3306
-    mysqlUser:
-      type: "string"
-      description: "MySQL username"
-    mysqlPassword:
-      type: "string"
-      description: "MySQL password"
-      format: "password"
-    mysqlDatabase:
-      type: "string"
-      description: "Database name"
-  required: ["mysqlHost", "mysqlUser", "mysqlPassword"]
-
+build:
+  dockerfile: ./Dockerfile
+  dockerBuildPath: .
 startCommand:
   type: stdio
-  commandFunction: |
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    {}
+  exampleConfig:
+    mysqlHost: localhost
+    mysqlUser: example_user
+    mysqlDatabase: example_db
+    mysqlPassword: example_password
+  commandFunction:
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
+    |
     (config) => ({
       command: "python",
       args: ["mcp_server.py"],
@@ -77,110 +27,3 @@ startCommand:
         MYSQL_DATABASE: config.mysqlDatabase || ""
       }
     })
-  exampleConfig:
-    mysqlHost: "localhost"
-    mysqlUser: "example_user"
-    mysqlPassword: "example_password"
-    mysqlDatabase: "example_db"
-
-build:
-  dockerfile: "./Dockerfile"
-  dockerBuildPath: "."
-  healthCheck:
-    type: "http"
-    path: "/health"
-    port: 14000
-    interval: "30s"
-    timeout: "30s"
-    retries: 3
-
-deployment:
-  type: "docker"
-  dockerfile: "./Dockerfile"
-  dockerBuildPath: "."
-  healthCheck:
-    type: "http"
-    path: "/health"
-    port: 14000
-    interval: "30s"
-    timeout: "30s"
-    retries: 3
-  resources:
-    memory: "512Mi"
-    cpu: "0.5"
-  env:
-    - name: PYTHONUNBUFFERED
-      value: "1"
-    - name: PYTHONPATH
-      value: "/app"
-  ports:
-    - 14000
-  websocket:
-    enabled: true
-    reconnect: true
-    timeout: 300000
-
-tools:
-  connect_db:
-    description: "Connect to a MySQL database"
-    parameters:
-      properties:
-        host:
-          type: "string"
-          description: "MySQL server hostname or IP address"
-          default: "localhost"
-        port:
-          type: "number"
-          description: "MySQL server port"
-          default: 3306
-        user:
-          type: "string"
-          description: "MySQL username"
-        password:
-          type: "string"
-          description: "MySQL password"
-          format: "password"
-        database:
-          type: "string"
-          description: "Database name (optional)"
-      required: ["host", "user", "password"]
-  list_databases:
-    description: "List all accessible databases"
-    parameters:
-      properties: {}
-  list_tables:
-    description: "List all tables"
-    parameters:
-      properties:
-        database:
-          type: "string"
-          description: "Database name (optional)"
-  describe_table:
-    description: "Show table schema"
-    parameters:
-      properties:
-        table:
-          type: "string"
-          description: "Table name"
-        database:
-          type: "string"
-          description: "Database name (optional)"
-      required: ["table"]
-  execute_query:
-    description: "Execute read-only SQL query"
-    parameters:
-      properties:
-        query:
-          type: "string"
-          description: "SQL query (SELECT, SHOW, DESCRIBE only)"
-        database:
-          type: "string"
-          description: "Database name (optional)"
-      required: ["query"]
-
-metadata:
-  name: "MySQL MCP Server"
-  description: "Secure MySQL database access through Model Context Protocol"
-  version: "1.0.0"
-  author: "Smithery AI"
-  license: "MIT" 
