@@ -80,6 +80,17 @@ startCommand:
     mysqlPassword: "example_password"
     mysqlDatabase: "example_db"
 
+build:
+  dockerfile: "./Dockerfile"
+  dockerBuildPath: "."
+  healthCheck:
+    type: "http"
+    path: "/health"
+    port: 14000
+    interval: "30s"
+    timeout: "30s"
+    retries: 3
+
 deployment:
   type: "docker"
   dockerfile: "./Dockerfile"

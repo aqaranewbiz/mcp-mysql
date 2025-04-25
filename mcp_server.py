@@ -21,23 +21,31 @@ from datetime import datetime
 import threading
 import platform
 from typing import Dict, List, Any, Optional, Union
+from mysql.connector import connect, Error, pooling
+from pythonjsonlogger import jsonlogger
+from flask import Flask, jsonify
 
-# Set up logging
-logging.basicConfig(
-    level=logging.DEBUG if os.environ.get('DEBUG') else logging.INFO,
-    format='%(asctime)s [%(name)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S',
-    stream=sys.stderr
-)
-logger = logging.getLogger('mysql-mcp-server')
+# Configure logging
+logger = logging.getLogger()
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter()
+logHandler.setFormatter(formatter)
+logger.addHandler(logHandler)
+logger.setLevel(logging.INFO)
 
-# Try to import MySQL connector
-try:
-    import mysql.connector
-    from mysql.connector import Error, pooling
-except ImportError:
-    logger.error("MySQL Connector for Python is not installed. Please install it using: pip install mysql-connector-python")
-    sys.exit(1)
+# Create Flask app for health check
+app = Flask(__name__)
+
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
+def run_health_server():
+    app.run(host='0.0.0.0', port=14000)
+
+# Start health check server in a separate thread
+health_thread = threading.Thread(target=run_health_server, daemon=True)
+health_thread.start()
 
 # Global variables
 running = True
