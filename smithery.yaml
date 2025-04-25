@@ -1,22 +1,122 @@
 # Smithery configuration file for MySQL MCP Server
-name: "mysql-mcp-python-server"
-description: "MySQL MCP Server in Python"
-version: "1.0.0"
-logo: "./logo.png"
+name: mysql-mcp-python-server
+description: MySQL MCP Server in Python
+version: 1.0.0
+logo: ./logo.png
 
-local:
-  enabled: true
-  installation:
-    type: "pip"
-    package: "mysql-mcp-server"
-    requirements:
-      - mysql-connector-python>=8.0.0
-      - python-json-logger>=2.0.0
-      - jsonschema>=3.2.0
-      - flask>=2.0.0
-    command: "python"
-    args: ["mcp_server.py"]
-    mode: "stdio"
+installation:
+  type: docker
+  dockerfile: ./Dockerfile
+  healthCheck:
+    type: http
+    path: /health
+    port: 14000
+    interval: 30s
+    timeout: 30s
+    retries: 3
+
+environment:
+  - name: MYSQL_HOST
+    description: MySQL server hostname
+    default: localhost
+  - name: MYSQL_PORT
+    description: MySQL server port
+    default: "3306"
+  - name: MYSQL_USER
+    description: MySQL username
+    required: true
+  - name: MYSQL_PASSWORD
+    description: MySQL password
+    required: true
+  - name: MYSQL_DATABASE
+    description: Default MySQL database
+    required: true
+  - name: ROW_LIMIT
+    description: Maximum number of rows to return per query
+    default: "1000"
+  - name: QUERY_TIMEOUT
+    description: Query timeout in milliseconds
+    default: "10000"
+  - name: POOL_SIZE
+    description: Size of the MySQL connection pool
+    default: "10"
+  - name: HEALTH_PORT
+    description: Port for the health check server
+    default: "14000"
+  - name: KEEP_ALIVE_INTERVAL
+    description: Keep-alive interval in seconds
+    default: "10"
+  - name: TIMEOUT
+    description: Server timeout in seconds
+    default: "300"
+  - name: LOG_LEVEL
+    description: Logging level (INFO, DEBUG, WARNING, ERROR)
+    default: "INFO"
+
+metadata:
+  name: MySQL MCP Server
+  description: Secure MySQL database access through Model Context Protocol
+  version: 1.0.0
+  author: Smithery AI
+  license: MIT
+
+tools:
+  connect_db:
+    description: "Connect to a MySQL database"
+    parameters:
+      properties:
+        host:
+          type: "string"
+          description: "MySQL server hostname or IP address"
+          default: "localhost"
+        port:
+          type: "number"
+          description: "MySQL server port"
+          default: 3306
+        user:
+          type: "string"
+          description: "MySQL username"
+        password:
+          type: "string"
+          description: "MySQL password"
+          format: "password"
+        database:
+          type: "string"
+          description: "Database name (optional)"
+      required: ["host", "user", "password"]
+  list_databases:
+    description: "List all accessible MySQL databases"
+    parameters:
+      properties: {}
+  list_tables:
+    description: "List all tables in a database"
+    parameters:
+      properties:
+        database:
+          type: string
+          description: "Database name to list tables from"
+  describe_table:
+    description: "Show the schema of a specific table"
+    parameters:
+      properties:
+        table:
+          type: string
+          description: "Name of the table to describe"
+        database:
+          type: string
+          description: "Database containing the table"
+      required: ["table"]
+  execute_query:
+    description: "Execute a read-only SQL query"
+    parameters:
+      properties:
+        query:
+          type: string
+          description: "SQL query (only SELECT, SHOW, DESCRIBE commands allowed)"
+        database:
+          type: string
+          description: "Database to execute the query on"
+      required: ["query"]
 
 settings:
   configurable: true
@@ -153,107 +253,4 @@ deployment:
   websocket:
     enabled: true
     reconnect: true
-    timeout: 300000
-
-tools:
-  connect_db:
-    description: "Connect to a MySQL database"
-    parameters:
-      properties:
-        host:
-          type: "string"
-          description: "MySQL server hostname or IP address"
-          default: "localhost"
-        port:
-          type: "number"
-          description: "MySQL server port"
-          default: 3306
-        user:
-          type: "string"
-          description: "MySQL username"
-        password:
-          type: "string"
-          description: "MySQL password"
-          format: "password"
-        database:
-          type: "string"
-          description: "Database name (optional)"
-      required: ["host", "user", "password"]
-  list_databases:
-    description: "List all accessible MySQL databases"
-    parameters:
-      properties: {}
-  list_tables:
-    description: "List all tables in a database"
-    parameters:
-      properties:
-        database:
-          type: string
-          description: "Database name to list tables from"
-  describe_table:
-    description: "Show the schema of a specific table"
-    parameters:
-      properties:
-        table:
-          type: string
-          description: "Name of the table to describe"
-        database:
-          type: string
-          description: "Database containing the table"
-      required: ["table"]
-  execute_query:
-    description: "Execute a read-only SQL query"
-    parameters:
-      properties:
-        query:
-          type: string
-          description: "SQL query (only SELECT, SHOW, DESCRIBE commands allowed)"
-        database:
-          type: string
-          description: "Database to execute the query on"
-      required: ["query"]
-
-metadata:
-  name: "MySQL MCP Server"
-  description: "Secure MySQL database access through Model Context Protocol"
-  version: "1.0.0"
-  author: "Smithery AI"
-  license: "MIT"
-
-environment:
-  - name: MYSQL_HOST
-    description: MySQL server hostname
-    default: localhost
-  - name: MYSQL_PORT
-    description: MySQL server port
-    default: "3306"
-  - name: MYSQL_USER
-    description: MySQL username
-    required: true
-  - name: MYSQL_PASSWORD
-    description: MySQL password
-    required: true
-  - name: MYSQL_DATABASE
-    description: Default MySQL database
-    required: true
-  - name: ROW_LIMIT
-    description: Maximum number of rows to return per query
-    default: "1000"
-  - name: QUERY_TIMEOUT
-    description: Query timeout in milliseconds
-    default: "10000"
-  - name: POOL_SIZE
-    description: Size of the MySQL connection pool
-    default: "10"
-  - name: HEALTH_PORT
-    description: Port for the health check server
-    default: "14000"
-  - name: KEEP_ALIVE_INTERVAL
-    description: Keep-alive interval in seconds
-    default: "10"
-  - name: TIMEOUT
-    description: Server timeout in seconds
-    default: "300"
-  - name: LOG_LEVEL
-    description: Logging level (INFO, DEBUG, WARNING, ERROR)
-    default: "INFO" 
+    timeout: 300000 

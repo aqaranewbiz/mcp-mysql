@@ -1,53 +1,30 @@
-# Builder stage
-FROM python:3.9-slim AS builder
-
-WORKDIR /build
-
-# Install build dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    gcc \
-    python3-dev \
-    default-libmysqlclient-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Final stage
 FROM python:3.9-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install runtime dependencies
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     default-libmysqlclient-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
 
-# Copy application files
-COPY . .
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Create non-root user
-RUN useradd -m -r mcp && \
-    chown -R mcp:mcp /app
+# Copy server code
+COPY mcp_server.py .
 
-# Switch to non-root user
-USER mcp
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-
-# Expose port for health check
+# Expose health check port
 EXPOSE 14000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:14000/health || exit 1
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
-# Command to run
+# Run the server
 CMD ["python", "mcp_server.py"] 
