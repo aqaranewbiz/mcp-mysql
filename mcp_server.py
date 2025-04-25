@@ -10,35 +10,14 @@ It allows:
 - Executing read-only SQL queries
 """
 
-import json
-import sys
 import os
-import signal
-import time
 import logging
-import traceback
-from datetime import datetime
-import threading
-import platform
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, Any, Optional
 from mysql.connector import connect, Error, pooling
 from pythonjsonlogger import jsonlogger
-from flask import Flask, jsonify
-
-# Default configuration
-DEFAULT_CONFIG = {
-    'host': os.environ.get('MYSQL_HOST', 'localhost'),
-    'port': int(os.environ.get('MYSQL_PORT', 3306)),
-    'user': os.environ.get('MYSQL_USER'),
-    'password': os.environ.get('MYSQL_PASSWORD'),
-    'database': os.environ.get('MYSQL_DATABASE'),
-    'row_limit': int(os.environ.get('ROW_LIMIT', 1000)),
-    'query_timeout': int(os.environ.get('QUERY_TIMEOUT', 10000)) / 1000,  # Convert from ms to seconds
-    'pool_size': int(os.environ.get('POOL_SIZE', 10)),
-    'health_port': int(os.environ.get('HEALTH_PORT', 14000)),
-    'keep_alive_interval': int(os.environ.get('KEEP_ALIVE_INTERVAL', 10)),
-    'timeout': int(os.environ.get('TIMEOUT', 300))
-}
+from mcp.server.fastmcp import FastMCP
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 
 # Configure logging
 logger = logging.getLogger()
@@ -48,549 +27,176 @@ logHandler.setFormatter(formatter)
 logger.addHandler(logHandler)
 logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
 
-# Create Flask app for health check
-app = Flask(__name__)
+# Default configuration
+DEFAULT_CONFIG = {
+    'host': os.environ.get('MYSQL_HOST', 'localhost'),
+    'port': int(os.environ.get('MYSQL_PORT', 3306)),
+    'user': os.environ.get('MYSQL_USER'),
+    'password': os.environ.get('MYSQL_PASSWORD'),
+    'database': os.environ.get('MYSQL_DATABASE'),
+    'row_limit': int(os.environ.get('ROW_LIMIT', 1000)),
+    'query_timeout': int(os.environ.get('QUERY_TIMEOUT', 10000)) / 1000,
+    'pool_size': int(os.environ.get('POOL_SIZE', 10))
+}
 
-@app.route('/health')
-def health_check():
-    return jsonify({"status": "healthy"}), 200
+# Create MCP server instance
+mcp = FastMCP("MySQL Database Explorer")
 
-def run_health_server():
-    app.run(host='0.0.0.0', port=DEFAULT_CONFIG['health_port'])
-
-# Start health check server in a separate thread
-health_thread = threading.Thread(target=run_health_server, daemon=True)
-health_thread.start()
-
-# Global variables
-running = True
-initialized = False
-last_activity_time = time.time()
-KEEP_ALIVE_INTERVAL = DEFAULT_CONFIG['keep_alive_interval']  # seconds
-TIMEOUT = DEFAULT_CONFIG['timeout']  # seconds
-connection_pool = None
-row_limit = DEFAULT_CONFIG['row_limit']
-query_timeout = DEFAULT_CONFIG['query_timeout']
-
-# Allowed SQL commands (read-only operations)
-ALLOWED_COMMANDS = [
-    'SELECT',
-    'SHOW',
-    'DESCRIBE',
-    'DESC',
-    'EXPLAIN',
-]
-
-# Disallowed SQL commands (write operations)
-DISALLOWED_COMMANDS = [
-    'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'TRUNCATE',
-    'RENAME', 'REPLACE', 'GRANT', 'REVOKE', 'LOCK', 'UNLOCK', 'CALL',
-    'EXEC', 'EXECUTE', 'SET', 'START', 'BEGIN', 'COMMIT', 'ROLLBACK',
-]
-
-# Print startup information
-logger.info(f"Starting MySQL MCP Server - Python {platform.python_version()} on {platform.platform()}")
-
-def signal_handler(signum, frame):
-    """Handle termination signals"""
-    global running
-    logger.info(f"Received signal {signum}, shutting down...")
-    running = False
-    cleanup()
-    sys.exit(0)
-
-def cleanup():
-    """Clean up resources before shutdown"""
-    global connection_pool
-    if connection_pool:
-        try:
-            connection_pool.close()
-            logger.info("Database connection pool closed")
-        except Exception as e:
-            logger.error(f"Error closing connection pool: {e}")
-    logger.info("Cleanup completed")
-
-def keep_alive_thread_func():
-    """Thread to send keep-alive messages"""
-    global running, last_activity_time
-    logger.info("Keep-alive thread started")
-    
-    while running:
-        try:
-            current_time = time.time()
-            elapsed = current_time - last_activity_time
-            
-            if elapsed > KEEP_ALIVE_INTERVAL:
-                logger.info(f"Sending keep-alive after {elapsed:.1f}s of inactivity")
-                send_keep_alive()
-                
-            time.sleep(1)
-        except Exception as e:
-            logger.error(f"Error in keep-alive thread: {e}")
-
-def send_keep_alive():
-    """Send keep-alive message to prevent timeout"""
-    global last_activity_time
-    last_activity_time = time.time()
+@asynccontextmanager
+async def server_lifespan(server: FastMCP) -> AsyncIterator[dict]:
+    """Manage server startup and shutdown lifecycle."""
+    # Initialize MySQL connection pool
+    config = {
+        'host': DEFAULT_CONFIG['host'],
+        'port': DEFAULT_CONFIG['port'],
+        'user': DEFAULT_CONFIG['user'],
+        'password': DEFAULT_CONFIG['password'],
+        'database': DEFAULT_CONFIG['database'],
+        'pool_size': DEFAULT_CONFIG['pool_size']
+    }
     
     try:
-        response = {
-            "jsonrpc": "2.0",
-            "method": "$/alive",
-            "params": {"timestamp": datetime.utcnow().isoformat()}
-        }
-        print(json.dumps(response), flush=True)
-    except Exception as e:
-        logger.error(f"Error sending keep-alive: {e}")
-
-def create_connection_pool(config: Dict[str, Any]) -> pooling.MySQLConnectionPool:
-    """Create a MySQL connection pool"""
-    logger.info(f"Creating MySQL connection pool to {config.get('host')}:{config.get('port', 3306)}")
-    
-    try:
-        pool = mysql.connector.pooling.MySQLConnectionPool(
+        pool = pooling.MySQLConnectionPool(
             pool_name="mysql_pool",
-            pool_size=config['pool_size'],
             **config
         )
-        logger.info("Connection pool created successfully")
-        return pool
-    except Error as e:
-        logger.error(f"Error creating connection pool: {e}")
-        raise
+        logger.info(f"Connected to MySQL at {config['host']}:{config['port']}")
+        yield {"pool": pool}
+    finally:
+        # Cleanup
+        if 'pool' in locals():
+            pool.close()
+            logger.info("Database connection pool closed")
 
-def is_read_only_query(query: str) -> bool:
-    """Check if a query is read-only"""
-    # Normalize query
-    normalized = query.replace('\n', ' ').strip().upper()
-    
-    # Check if query starts with allowed command
-    starts_with_allowed = any(normalized.startswith(cmd + ' ') or normalized == cmd for cmd in ALLOWED_COMMANDS)
-    
-    # Check if query contains disallowed commands
-    contains_disallowed = any(f" {cmd} " in f" {normalized} " for cmd in DISALLOWED_COMMANDS)
-    
-    # Check for multiple statements
-    has_multiple_statements = ';' in normalized and not normalized.endswith(';')
-    
-    return starts_with_allowed and not contains_disallowed and not has_multiple_statements
+# Set up server with lifespan
+mcp.set_lifespan(server_lifespan)
 
-def validate_query(query: str) -> None:
-    """Validate that a query is safe to execute"""
-    logger.info(f"Validating query: {query}")
+@mcp.resource("schema://{database}")
+async def get_schema(database: str) -> str:
+    """Get the schema of a database"""
+    ctx = mcp.request_context
+    pool = ctx.lifespan_context["pool"]
     
-    if not query or not isinstance(query, str):
-        raise ValueError("Query must be a non-empty string")
-    
-    if not is_read_only_query(query):
-        logger.warning(f"Rejected unsafe query: {query}")
-        raise ValueError("Only read-only queries are allowed (SELECT, SHOW, DESCRIBE, EXPLAIN)")
-    
-    logger.info("Query validated as read-only")
+    with pool.get_connection() as conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(f"USE `{database}`")
+        cursor.execute("""
+            SELECT 
+                TABLE_NAME, 
+                COLUMN_NAME,
+                COLUMN_TYPE,
+                IS_NULLABLE,
+                COLUMN_KEY,
+                COLUMN_DEFAULT,
+                EXTRA
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = %s
+            ORDER BY TABLE_NAME, ORDINAL_POSITION
+        """, (database,))
+        schema = cursor.fetchall()
+        
+        return "\n".join(
+            f"Table {row['TABLE_NAME']}: {row['COLUMN_NAME']} ({row['COLUMN_TYPE']}) "
+            f"{'NOT NULL ' if row['IS_NULLABLE'] == 'NO' else ''}"
+            f"{'PRIMARY KEY ' if row['COLUMN_KEY'] == 'PRI' else ''}"
+            f"{'AUTO_INCREMENT ' if 'auto_increment' in row['EXTRA'].lower() else ''}"
+            for row in schema
+        )
 
-def execute_query(sql: str, params: List[Any] = None, database: str = None) -> Dict[str, Any]:
-    """Execute a SQL query with error handling"""
-    global connection_pool
+@mcp.tool()
+async def list_databases() -> Dict[str, Any]:
+    """List all accessible databases"""
+    ctx = mcp.request_context
+    pool = ctx.lifespan_context["pool"]
     
-    if not connection_pool:
-        raise ValueError("Not connected to MySQL. Use connect_db first.")
-    
-    connection = None
-    try:
-        # Get connection from pool
-        connection = connection_pool.get_connection()
-        
-        # Use specified database if provided
-        if database:
-            logger.info(f"Using database: {database}")
-            connection.cmd_query(f"USE `{database}`")
-        
-        # Create cursor
-        cursor = connection.cursor(dictionary=True)
-        
-        # Execute query
-        start_time = time.time()
-        cursor.execute(sql, params or [])
-        
-        # Fetch results
-        if cursor.with_rows:
-            rows = cursor.fetchall()
-            # Apply row limit
-            if len(rows) > row_limit:
-                logger.info(f"Limiting results from {len(rows)} to {row_limit} rows")
-                rows = rows[:row_limit]
-        else:
-            rows = []
-        
-        # Log execution time
-        execution_time = time.time() - start_time
-        logger.info(f"Query executed in {execution_time:.3f}s, returned {len(rows)} rows")
-        
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SHOW DATABASES")
+        databases = cursor.fetchall()
         return {
             "success": True,
-            "rows": rows,
-            "rowCount": len(rows),
-            "fields": [desc[0] for desc in cursor.description] if cursor.description else []
+            "databases": [db[0] for db in databases]
         }
-    except Error as e:
-        logger.error(f"Error executing query: {e}")
-        return {"success": False, "error": str(e)}
-    finally:
-        if connection:
-            connection.close()
 
-def connect_db(host: str, port: int = 3306, user: str = None, password: str = None, database: str = None) -> Dict[str, Any]:
-    """Connect to a MySQL database"""
-    global connection_pool
-    
-    if not user or not password:
-        return {"success": False, "error": "Username and password are required"}
-    
-    logger.info(f"Connecting to MySQL database at {host}:{port}")
-    
-    try:
-        config = {
-            "host": host,
-            "port": port,
-            "user": user,
-            "password": password,
-        }
-        
-        if database:
-            config["database"] = database
-            
-        # Close existing pool if it exists
-        if connection_pool:
-            connection_pool.close()
-            
-        # Create new pool
-        connection_pool = create_connection_pool(config)
-        
-        # Test connection
-        connection = connection_pool.get_connection()
-        connection.cmd_query("SELECT 1")
-        connection.close()
-        
-        logger.info("Connected to MySQL database successfully")
-        return {"success": True, "message": f"Connected to MySQL at {host}:{port} successfully"}
-    except Error as e:
-        logger.error(f"Error connecting to database: {e}")
-        return {"success": False, "error": str(e)}
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        return {"success": False, "error": str(e)}
-
-def list_databases() -> Dict[str, Any]:
-    """List all accessible databases"""
-    logger.info("Listing databases")
-    return execute_query("SHOW DATABASES")
-
-def list_tables(database: str = None) -> Dict[str, Any]:
+@mcp.tool()
+async def list_tables(database: Optional[str] = None) -> Dict[str, Any]:
     """List all tables in a database"""
-    logger.info(f"Listing tables in database: {database or 'default'}")
-    return execute_query("SHOW FULL TABLES", database=database)
+    ctx = mcp.request_context
+    pool = ctx.lifespan_context["pool"]
+    
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        if database:
+            cursor.execute(f"USE `{database}`")
+        cursor.execute("SHOW TABLES")
+        tables = cursor.fetchall()
+        return {
+            "success": True,
+            "tables": [table[0] for table in tables]
+        }
 
-def describe_table(table: str, database: str = None) -> Dict[str, Any]:
+@mcp.tool()
+async def describe_table(table: str, database: Optional[str] = None) -> Dict[str, Any]:
     """Describe a table schema"""
-    logger.info(f"Describing table {table} in {database or 'default'} database")
-    return execute_query(f"DESCRIBE `{table}`", database=database)
+    ctx = mcp.request_context
+    pool = ctx.lifespan_context["pool"]
+    
+    with pool.get_connection() as conn:
+        cursor = conn.cursor(dictionary=True)
+        if database:
+            cursor.execute(f"USE `{database}`")
+        cursor.execute(f"DESCRIBE `{table}`")
+        columns = cursor.fetchall()
+        return {
+            "success": True,
+            "columns": columns
+        }
 
-def execute_sql_query(query: str, database: str = None) -> Dict[str, Any]:
+@mcp.tool()
+async def execute_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
     """Execute a read-only SQL query"""
-    logger.info(f"Executing query in {database or 'default'} database")
+    ctx = mcp.request_context
+    pool = ctx.lifespan_context["pool"]
     
-    try:
-        validate_query(query)
-        return execute_query(query, database=database)
-    except ValueError as e:
-        return {"success": False, "error": str(e)}
-
-def handle_request(request: str) -> Dict:
-    """Handle JSON-RPC request"""
-    global last_activity_time, initialized
-    
-    # Update last activity time
-    last_activity_time = time.time()
-    
-    try:
-        # Parse the request
-        request_obj = json.loads(request)
-        method = request_obj.get("method")
-        params = request_obj.get("params", {})
-        request_id = request_obj.get("id")
-        
-        logger.info(f"Received request: method={method}, id={request_id}")
-        
-        # Handle initialization
-        if method == "initialize":
-            logger.info("Processing initialize request")
-            initialized = True
-            
-            # Return server capabilities
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "capabilities": {
-                        "textDocumentSync": 1,
-                        "completionProvider": {
-                            "resolveProvider": True,
-                            "triggerCharacters": ["."]
-                        },
-                        "hoverProvider": True
-                    },
-                    "serverInfo": {
-                        "name": "mysql-mcp-server",
-                        "version": "1.0.0"
-                    }
-                }
-            }
-            
-        # Handle shutdown
-        elif method == "shutdown":
-            logger.info("Processing shutdown request")
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": None
-            }
-            
-        # Handle exit
-        elif method == "exit":
-            logger.info("Received exit notification, shutting down...")
-            cleanup()
-            sys.exit(0)
-            
-        # Handle tool listing
-        elif method == "MCP/listTools":
-            logger.info("Processing MCP/listTools request")
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "tools": {
-                        "connect_db": {
-                            "description": "Connect to a MySQL database",
-                            "parameters": {
-                                "properties": {
-                                    "host": {
-                                        "type": "string",
-                                        "description": "MySQL server hostname or IP address",
-                                        "default": "localhost"
-                                    },
-                                    "port": {
-                                        "type": "integer",
-                                        "description": "MySQL server port",
-                                        "default": 3306
-                                    },
-                                    "user": {
-                                        "type": "string",
-                                        "description": "MySQL username"
-                                    },
-                                    "password": {
-                                        "type": "string",
-                                        "description": "MySQL password",
-                                        "format": "password"
-                                    },
-                                    "database": {
-                                        "type": "string",
-                                        "description": "Database name (optional)"
-                                    }
-                                },
-                                "required": ["host", "user", "password"]
-                            }
-                        },
-                        "list_databases": {
-                            "description": "List all accessible databases",
-                            "parameters": {
-                                "properties": {}
-                            }
-                        },
-                        "list_tables": {
-                            "description": "List all tables in a database",
-                            "parameters": {
-                                "properties": {
-                                    "database": {
-                                        "type": "string",
-                                        "description": "Database name (optional, uses default if connected)"
-                                    }
-                                }
-                            }
-                        },
-                        "describe_table": {
-                            "description": "Show the schema for a table",
-                            "parameters": {
-                                "properties": {
-                                    "table": {
-                                        "type": "string",
-                                        "description": "Table name"
-                                    },
-                                    "database": {
-                                        "type": "string",
-                                        "description": "Database name (optional, uses default if connected)"
-                                    }
-                                },
-                                "required": ["table"]
-                            }
-                        },
-                        "execute_query": {
-                            "description": "Execute a read-only SQL query",
-                            "parameters": {
-                                "properties": {
-                                    "query": {
-                                        "type": "string",
-                                        "description": "SQL query (only SELECT, SHOW, DESCRIBE, and EXPLAIN allowed)"
-                                    },
-                                    "database": {
-                                        "type": "string",
-                                        "description": "Database name (optional, uses default if connected)"
-                                    }
-                                },
-                                "required": ["query"]
-                            }
-                        }
-                    }
-                }
-            }
-            
-        # Handle tool calls
-        elif method == "MCP/callTool":
-            logger.info(f"Processing MCP/callTool request: {params}")
-            
-            tool_name = params.get("tool")
-            tool_params = params.get("parameters", {})
-            
-            # Execute the appropriate tool
-            result = None
-            if tool_name == "connect_db":
-                result = connect_db(
-                    host=tool_params.get("host", "localhost"),
-                    port=int(tool_params.get("port", 3306)),
-                    user=tool_params.get("user"),
-                    password=tool_params.get("password"),
-                    database=tool_params.get("database")
-                )
-            elif tool_name == "list_databases":
-                result = list_databases()
-            elif tool_name == "list_tables":
-                result = list_tables(database=tool_params.get("database"))
-            elif tool_name == "describe_table":
-                table = tool_params.get("table")
-                if not table:
-                    result = {"success": False, "error": "Table name is required"}
-                else:
-                    result = describe_table(
-                        table=table,
-                        database=tool_params.get("database")
-                    )
-            elif tool_name == "execute_query":
-                query = tool_params.get("query")
-                if not query:
-                    result = {"success": False, "error": "Query is required"}
-                else:
-                    result = execute_sql_query(
-                        query=query,
-                        database=tool_params.get("database")
-                    )
-            else:
-                result = {"success": False, "error": f"Unknown tool: {tool_name}"}
-                
-            logger.info(f"Tool {tool_name} execution completed with success={result.get('success', False)}")
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": result
-            }
-            
-        # Handle unknown method
-        else:
-            error_msg = f"Unknown method: {method}"
-            logger.error(error_msg)
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {
-                    "code": -32601,
-                    "message": error_msg
-                }
-            }
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON parsing error: {e}")
+    # Validate query is read-only
+    normalized = query.strip().upper()
+    if not any(normalized.startswith(cmd) for cmd in ['SELECT', 'SHOW', 'DESCRIBE', 'EXPLAIN']):
         return {
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {
-                "code": -32700,
-                "message": f"Parse error: {str(e)}"
-            }
+            "success": False,
+            "error": "Only SELECT, SHOW, DESCRIBE, and EXPLAIN queries are allowed"
         }
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        traceback.print_exc()
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id if "request_id" in locals() else None,
-            "error": {
-                "code": -32603,
-                "message": f"Internal error: {str(e)}"
+    
+    try:
+        with pool.get_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            if database:
+                cursor.execute(f"USE `{database}`")
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            # Apply row limit
+            if len(rows) > DEFAULT_CONFIG['row_limit']:
+                rows = rows[:DEFAULT_CONFIG['row_limit']]
+                
+            return {
+                "success": True,
+                "rows": rows,
+                "rowCount": len(rows),
+                "fields": [desc[0] for desc in cursor.description] if cursor.description else []
             }
+    except Error as e:
+        return {
+            "success": False,
+            "error": str(e)
         }
 
-def main():
-    """Main entry point"""
-    global running, initialized
-    
-    # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Start keep-alive thread
-    keep_alive_thread = threading.Thread(target=keep_alive_thread_func)
-    keep_alive_thread.daemon = True
-    keep_alive_thread.start()
-    
-    # Get database connection info from environment variables
-    host = DEFAULT_CONFIG['host']
-    user = DEFAULT_CONFIG['user']
-    password = DEFAULT_CONFIG['password']
-    database = DEFAULT_CONFIG['database']
-    port = DEFAULT_CONFIG['port']
-    
-    if not all([host, user, password]):
-        logger.error("Required environment variables MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD not set")
-        sys.exit(1)
-    
-    try:
-        # Connect to database
-        result = connect_db(host=host, port=port, user=user, password=password, database=database)
-        if not result.get('success'):
-            logger.error(f"Failed to connect to database: {result.get('error')}")
-            sys.exit(1)
-        initialized = True
-        
-        # Main loop
-        while running:
-            try:
-                line = sys.stdin.readline()
-                if not line:
-                    break
-                    
-                request = json.loads(line)
-                response = handle_request(request)
-                
-                if response:
-                    print(json.dumps(response), flush=True)
-                    
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON received: {e}")
-            except Exception as e:
-                logger.error(f"Error processing request: {e}\n{traceback.format_exc()}")
-                
-    except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt")
-    finally:
-        cleanup()
+@mcp.prompt()
+async def connect_database() -> str:
+    """Create a prompt for connecting to a database"""
+    return """Please help me connect to a MySQL database. I need to:
+1. Specify the host, port, username, password, and database name
+2. Test the connection
+3. Start exploring the database schema and data"""
 
 if __name__ == "__main__":
-    main() 
+    mcp.run() 
