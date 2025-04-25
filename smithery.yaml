@@ -40,28 +40,31 @@ settings:
       - mysqlPassword
       - mysqlDatabase
 
+configSchema:
+  type: "object"
+  properties:
+    mysqlHost:
+      type: "string"
+      description: "MySQL host address"
+      default: "localhost"
+    mysqlPort:
+      type: "number"
+      description: "MySQL port"
+      default: 3306
+    mysqlUser:
+      type: "string"
+      description: "MySQL username"
+    mysqlPassword:
+      type: "string"
+      description: "MySQL password"
+      format: "password"
+    mysqlDatabase:
+      type: "string"
+      description: "Database name"
+  required: ["mysqlHost", "mysqlUser", "mysqlPassword"]
+
 startCommand:
   type: stdio
-  configSchema:
-    properties:
-      mysqlHost:
-        type: "string"
-        description: "MySQL host address"
-      mysqlPort:
-        type: "number"
-        description: "MySQL port"
-        default: 3306
-      mysqlUser:
-        type: "string"
-        description: "MySQL username"
-      mysqlPassword:
-        type: "string"
-        description: "MySQL password"
-        format: "password"
-      mysqlDatabase:
-        type: "string"
-        description: "Database name"
-    required: ["mysqlHost", "mysqlUser", "mysqlPassword"]
   commandFunction: |
     (config) => ({
       command: "python",
@@ -123,30 +126,26 @@ tools:
     parameters:
       properties:
         host:
-          type: string
+          type: "string"
           description: "MySQL server hostname or IP address"
           default: "localhost"
         port:
-          type: integer
+          type: "number"
           description: "MySQL server port"
           default: 3306
         user:
-          type: string
+          type: "string"
           description: "MySQL username"
         password:
-          type: string
+          type: "string"
           description: "MySQL password"
-          format: password
+          format: "password"
         database:
-          type: string
-          description: "Database name"
-      required:
-        - host
-        - user
-        - password
-        - database
+          type: "string"
+          description: "Database name (optional)"
+      required: ["host", "user", "password"]
   list_databases:
-    description: "List all databases"
+    description: "List all accessible databases"
     parameters:
       properties: {}
   list_tables:
@@ -155,7 +154,7 @@ tools:
       properties:
         database:
           type: "string"
-          description: "Database name"
+          description: "Database name (optional)"
   describe_table:
     description: "Show table schema"
     parameters:
@@ -165,18 +164,18 @@ tools:
           description: "Table name"
         database:
           type: "string"
-          description: "Database name"
+          description: "Database name (optional)"
       required: ["table"]
   execute_query:
-    description: "Execute SQL query"
+    description: "Execute read-only SQL query"
     parameters:
       properties:
         query:
           type: "string"
-          description: "SQL query"
+          description: "SQL query (SELECT, SHOW, DESCRIBE only)"
         database:
           type: "string"
-          description: "Database name"
+          description: "Database name (optional)"
       required: ["query"]
 
 metadata:
