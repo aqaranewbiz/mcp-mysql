@@ -24,7 +24,19 @@ EXPOSE 14000
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    MYSQL_HOST=localhost \
+    MYSQL_PORT=3306 \
+    MYSQL_USER=root \
+    MYSQL_PASSWORD=password \
+    MYSQL_DATABASE=test \
+    ROW_LIMIT=1000 \
+    QUERY_TIMEOUT=10000 \
+    POOL_SIZE=10 \
+    HEALTH_PORT=14000 \
+    KEEP_ALIVE_INTERVAL=10 \
+    TIMEOUT=300 \
+    LOG_LEVEL=INFO
 
 # Run the server
 CMD ["python", "mcp_server.py"] 

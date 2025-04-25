@@ -15,31 +15,78 @@ installation:
     timeout: 30s
     retries: 3
 
+config:
+  type: object
+  required:
+    - mysqlHost
+    - mysqlUser
+    - mysqlPassword
+    - mysqlDatabase
+  properties:
+    mysqlHost:
+      type: string
+      description: MySQL server hostname
+      default: localhost
+    mysqlPort:
+      type: integer
+      description: MySQL server port
+      default: 3306
+    mysqlUser:
+      type: string
+      description: MySQL username
+    mysqlPassword:
+      type: string
+      description: MySQL password
+      format: password
+    mysqlDatabase:
+      type: string
+      description: MySQL database name
+    rowLimit:
+      type: integer
+      description: Maximum number of rows to return per query
+      default: 1000
+    queryTimeout:
+      type: integer
+      description: Query timeout in milliseconds
+      default: 10000
+    poolSize:
+      type: integer
+      description: Size of the MySQL connection pool
+      default: 10
+    logLevel:
+      type: string
+      description: Logging level
+      enum: [DEBUG, INFO, WARNING, ERROR]
+      default: INFO
+
 environment:
   - name: MYSQL_HOST
     description: MySQL server hostname
-    default: localhost
+    config: mysqlHost
   - name: MYSQL_PORT
     description: MySQL server port
-    default: "3306"
+    config: mysqlPort
   - name: MYSQL_USER
     description: MySQL username
+    config: mysqlUser
     required: true
   - name: MYSQL_PASSWORD
     description: MySQL password
+    config: mysqlPassword
     required: true
   - name: MYSQL_DATABASE
     description: Default MySQL database
+    config: mysqlDatabase
     required: true
   - name: ROW_LIMIT
     description: Maximum number of rows to return per query
-    default: "1000"
+    config: rowLimit
   - name: QUERY_TIMEOUT
     description: Query timeout in milliseconds
-    default: "10000"
+    config: queryTimeout
   - name: POOL_SIZE
     description: Size of the MySQL connection pool
-    default: "10"
+    config: poolSize
   - name: HEALTH_PORT
     description: Port for the health check server
     default: "14000"
@@ -51,7 +98,7 @@ environment:
     default: "300"
   - name: LOG_LEVEL
     description: Logging level (INFO, DEBUG, WARNING, ERROR)
-    default: "INFO"
+    config: logLevel
 
 metadata:
   name: MySQL MCP Server
